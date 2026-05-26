@@ -22,6 +22,12 @@ with Vhdl.Errors; use Vhdl.Errors;
 with Vhdl.Sem_Specs;
 
 package body Vhdl.Back_End is
+   --  Extract library and symbol from string attribute.
+   function Extract_Foreign_Info
+      (Spec : Iir_Attribute_Specification; Name : String; Length : Natural;
+       Offset : Natural)
+   return Foreign_Info_Type;
+
    function Get_String_As_String (Expr : Iir) return String is
    begin
       case Get_Kind (Expr) is
@@ -79,72 +85,77 @@ package body Vhdl.Back_End is
 
       pragma Assert (Name'First = 1);
 
-      --  Only 'VHPIDIRECT' is recognized.
+      --  Recognize 'VHPIDIRECT', 'GHDL' or 'GHDL intrinsic'.
       if Length >= 10 and then Name (1 .. 10) = "VHPIDIRECT" then
-         declare
-            Info : Foreign_Info_Type (Foreign_Vhpidirect);
-            P : Natural;
-            Sf, Sl : Natural;
-            Lf, Ll : Natural;
-         begin
-            P := 11;
-
-            --  Skip spaces.
-            while P <= Length and then Name (P) = ' ' loop
-               P := P + 1;
-            end loop;
-            if P > Length then
-               Error_Msg_Sem
-                 (+Spec, "missing subprogram/library name after VHPIDIRECT");
-               Info.Lib_Len := 0;
-               Info.Subprg_Len := 0;
-               return Info;
-            end if;
-            --  Extract library.
-            Lf := P;
-            while P <= Length and then Name (P) /= ' ' loop
-               P := P + 1;
-            end loop;
-            Ll := P - 1;
-            --  Extract subprogram.
-            while P <= Length and then Name (P) = ' ' loop
-               P := P + 1;
-            end loop;
-            Sf := P;
-            while P <= Length and then Name (P) /= ' ' loop
-               P := P + 1;
-            end loop;
-            Sl := P - 1;
-            if P <= Length then
-               Error_Msg_Sem (+Spec, "garbage at end of VHPIDIRECT");
-            end if;
-
-            --  Accept empty library.
-            if Sf > Length then
-               Sf := Lf;
-               Sl := Ll;
-               Lf := 1;
-               Ll := 0;
-            end if;
-
-            Info.Lib_Len := Ll - Lf + 1;
-            Info.Lib_Name (1 .. Info.Lib_Len) := Name (Lf .. Ll);
-
-            Info.Subprg_Len := Sl - Sf + 1;
-            Info.Subprg_Name (1 .. Info.Subprg_Len) := Name (Sf .. Sl);
-            return Info;
-         end;
-      elsif Length = 14
-        and then Name (1 .. 14) = "GHDL intrinsic"
-      then
+         return Extract_Foreign_Info(Spec, Name, Length, 11);
+      elsif Length = 14 and then Name (1 .. 14) = "GHDL intrinsic" then
          return Foreign_Info_Type'(Kind => Foreign_Intrinsic);
+      elsif Length >= 4 and then Name (1 .. 4) = "GHDL" then
+         return Extract_Foreign_Info(Spec, Name, Length, 5);
       else
          Error_Msg_Sem
            (+Spec,
-            "value of 'FOREIGN attribute does not begin with VHPIDIRECT");
+            "value of 'FOREIGN attribute does not begin with VHPIDIRECT/GHDL");
          return Foreign_Bad;
       end if;
    end Translate_Foreign_Id;
+
+   function Extract_Foreign_Info
+      (Spec : Iir_Attribute_Specification; Name : String; Length : Natural;
+       Offset : Natural)
+   return Foreign_Info_Type is
+      Info : Foreign_Info_Type (Foreign_Vhpidirect);
+      P : Natural;
+      Sf, Sl : Natural;
+      Lf, Ll : Natural;
+   begin
+      P := Offset;
+
+      --  Skip spaces.
+      while P <= Length and then Name (P) = ' ' loop
+         P := P + 1;
+      end loop;
+      if P > Length then
+         Error_Msg_Sem
+            (+Spec, "missing subprogram/library name after VHPIDIRECT/GHDL");
+         Info.Lib_Len := 0;
+         Info.Subprg_Len := 0;
+         return Info;
+      end if;
+      --  Extract library.
+      Lf := P;
+      while P <= Length and then Name (P) /= ' ' loop
+         P := P + 1;
+      end loop;
+      Ll := P - 1;
+      --  Extract subprogram.
+      while P <= Length and then Name (P) = ' ' loop
+         P := P + 1;
+      end loop;
+      Sf := P;
+      while P <= Length and then Name (P) /= ' ' loop
+         P := P + 1;
+      end loop;
+      Sl := P - 1;
+      if P <= Length then
+         Error_Msg_Sem (+Spec, "garbage at end of VHPIDIRECT/GHDL");
+      end if;
+
+      --  Accept empty library.
+      if Sf > Length then
+         Sf := Lf;
+         Sl := Ll;
+         Lf := 1;
+         Ll := 0;
+      end if;
+
+      Info.Lib_Len := Ll - Lf + 1;
+      Info.Lib_Name (1 .. Info.Lib_Len) := Name (Lf .. Ll);
+
+      Info.Subprg_Len := Sl - Sf + 1;
+      Info.Subprg_Name (1 .. Info.Subprg_Len) := Name (Sf .. Sl);
+      return Info;
+   end Extract_Foreign_Info;
 
    procedure Sem_Foreign_Wrapper (Decl : Iir)
    is
